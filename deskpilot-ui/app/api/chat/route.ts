@@ -14,29 +14,6 @@ export const dynamic = "force-dynamic";
 // In-memory idempotency cache (stores cached results for 5 minutes)
 const idempotencyCache = new Map<string, { result: string; tokens: any; timestamp: number }>();
 
-// Exponential backoff retry helper for LLM API calls
-async function retryWithBackoff<T>(
-  fn: () => Promise<T>,
-  retries = 3,
-  delay = 1000,
-  onRetry?: (attempt: number, error: any) => void
-): Promise<T> {
-  try {
-    return await fn();
-  } catch (error: any) {
-    const status = error?.status || error?.statusCode;
-    const isRetryable =
-      status === 429 || (status >= 500 && status < 600) || error?.code === "ETIMEDOUT";
-
-    if (retries > 0 && isRetryable) {
-      if (onRetry) onRetry(4 - retries, error);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      return retryWithBackoff(fn, retries - 1, delay * 2, onRetry);
-    }
-    throw error;
-  }
-}
-
 // 15-second tool execution timeout guard
 async function callToolWithTimeout(
   mcpClient: Client,
@@ -218,23 +195,15 @@ export async function POST(req: NextRequest) {
 
           let response;
           try {
-            response = await retryWithBackoff(
-              () =>
-                openai.chat.completions.create({
-                  model: "openrouter/free",
-                  messages,
-                  tools,
-                  tool_choice: "auto",
-                }),
-              3,
-              1000,
-              (attempt, err) => {
-                sendEvent("status", `[Retry] Rate limit/API issue detected. Retrying API request (Attempt ${attempt}/3)...`);
-              }
-            );
+            response = await openai.chat.completions.create({
+              model: "openrouter/free",
+              messages,
+              tools,
+              tool_choice: "auto",
+            });
           } catch (apiErr: any) {
-            console.error("[OpenRouter API Error After Retries]", apiErr);
-            sendEvent("error", `OpenRouter API Call failed after retries: ${apiErr.message}`);
+            console.error("[OpenRouter API Error]", apiErr);
+            sendEvent("error", `OpenRouter API Call failed: ${apiErr.message}`);
             break;
           }
 
