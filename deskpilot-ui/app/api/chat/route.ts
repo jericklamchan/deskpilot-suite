@@ -46,15 +46,30 @@ export async function POST(req: NextRequest) {
 
       let mcpClient: Client | null = null;
 
+      // Handle client disconnect / abort signals gracefully
+      const abortHandler = async () => {
+        console.warn("[API Route] Client disconnected. Cleaning up MCP client...");
+        if (mcpClient) {
+          try {
+            await mcpClient.close();
+          } catch {}
+        }
+      };
+      req.signal.addEventListener("abort", abortHandler);
+
       try {
         sendEvent("status", "Initializing MCP Transport & spawning server...");
 
         const serverPath = path.resolve(process.cwd(), "../deskpilot/server.ts");
+        const deskpilotDir = path.resolve(process.cwd(), "../deskpilot");
+
         console.log("[MCP Spawn] Server script path:", serverPath);
+        console.log("[MCP Spawn] Working directory:", deskpilotDir);
 
         const transport = new StdioClientTransport({
           command: "npx",
           args: ["tsx", serverPath],
+          cwd: deskpilotDir, // <--- THIS IS THE FIX: Runs it inside the deskpilot package folder
         });
 
         mcpClient = new Client(
@@ -175,6 +190,7 @@ export async function POST(req: NextRequest) {
         console.error("[Fatal Stream Error]", fatalErr);
         sendEvent("error", `Fatal Error: ${fatalErr.message}`);
       } finally {
+        req.signal.removeEventListener("abort", abortHandler);
         if (mcpClient) {
           try {
             await mcpClient.close();

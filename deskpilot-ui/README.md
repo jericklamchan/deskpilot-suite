@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DeskPilot UI
 
-## Getting Started
+> The frontend dashboard and real-time execution console for the **DeskPilot Suite**. Built with Next.js (App Router), TypeScript, and Tailwind CSS, it connects directly to the `deskpilot` MCP backend via Server-Sent Events (SSE).
 
-First, run the development server:
+---
+
+## 🛠️ Tech Stack & Architecture
+
+- **Framework:** [Next.js](https://nextjs.org/) (App Router, React 19 / Client Components)
+- **Styling:** Tailwind CSS
+- **Protocol & Transport:** Server-Sent Events (SSE) streaming bridging App Router API routes (`app/api/chat/route.ts`) to child-process backend instances (`deskpilot`).
+- **Process Lifecycle Management:** Built-in `AbortController` signal tracking to prevent background zombie process leaks on client disconnect.
+
+---
+
+## 📂 Project Structure
+
+```text
+deskpilot-ui/
+├── app/
+│   ├── api/
+│   │   └── chat/
+│   │       └── route.ts     # Main SSE endpoint spawning & streaming MCP backend process
+│   ├── layout.tsx           # Global app layout & metadata
+│   └── page.tsx             # Operations dashboard UI & chat interface
+├── components/              # UI components (log streaming, message UI, control panels)
+├── public/                  # Static assets
+├── .env.local               # Local environment key configuration (git-ignored)
+├── next.config.ts           # Next.js configuration
+├── package.json             # Frontend dependencies & scripts
+└── tsconfig.json            # TypeScript setup
+```
+
+---
+
+## ⚙️ Getting Started
+
+### 1. Prerequisites
+Ensure you have Node.js (v18+) installed and that the sibling folder `deskpilot` contains the runnable TypeScript backend MCP server (`server.ts`).
+
+### 2. Configure Environment Variables
+Create a `.env.local` file inside the `deskpilot-ui/` directory:
+
+```env
+OPENROUTER_API_KEY=sk-or-v1-your-api-key-here
+```
+
+### 3. Install Dependencies
+Run from inside the `deskpilot-ui` directory:
+
+```bash
+npm install
+```
+
+### 4. Run Development Server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser to launch the dashboard.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## ⚡ API & Backend Integration
 
-## Learn More
+The primary interaction happens through the API route located at `app/api/chat/route.ts`:
 
-To learn more about Next.js, take a look at the following resources:
+1. **Child Process Spawning:** Upon receiving a request, Next.js spawns `npx tsx ../deskpilot/server.ts` using `child_process.spawn`.
+2. **Real-time SSE Logs:** Stdout from the MCP agent is encoded and streamed directly back to the React UI as Server-Sent Events.
+3. **Stderr Capture:** Terminal error output from the backend is captured in real-time to prevent silent failures.
+4. **Lifecycle Hooks:** Listens to `req.signal` (`abort`) events. If the tab or client connection drops mid-request, a `SIGTERM` / `SIGKILL` cascade immediately terminates the backend process.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 📄 License
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is part of the **DeskPilot Suite** monorepo and is licensed under the MIT License.
