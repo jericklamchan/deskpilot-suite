@@ -1,87 +1,66 @@
-# DeskPilot Suite
+# DeskPilot Suite 🚀
 
-> A production-grade, full-stack monorepo combining an intelligent **Model Context Protocol (MCP)** agent backend with a modern **Next.js operations dashboard**. DeskPilot empowers internal operations teams with real-time tool execution, live SSE stream logs, and automated backend workflow routing.
+DeskPilot Suite is a full-stack, monorepo-based AI operations assistant platform. It leverages the **Model Context Protocol (MCP)** to allow an LLM agent to inspect, query, and act upon mock internal enterprise data (CRM, Inventory, Task Backlogs) in real time.
 
----
+## 🏗️ Architecture Overview
 
-## 🏗️ Monorepo Architecture
+The workspace is organized as a monorepo containing two core modules:
 
 ```text
 deskpilot-suite/
-├── deskpilot/           # Backend MCP agent server & CLI tools (Node.js, TypeScript, MCP SDK)
-└── deskpilot-ui/        # Next.js operations dashboard & SSE client (App Router, Tailwind CSS)
+├── deskpilot/       # MCP Backend Server (TypeScript + Stdio Transport)
+├── deskpilot-ui/    # Next.js Dashboard Frontend (React + SSE Stream)
+└── README.md        # Monorepo documentation
 ```
 
----
-
-## 🚀 Tech Stack
-
-- **Frontend:** Next.js (App Router), TypeScript, Tailwind CSS, React Client Components.
-- **Backend / Agent Core:** Model Context Protocol (MCP) SDK (`@modelcontextprotocol/sdk`), Stdio transport, OpenAI SDK (`openrouter/free`).
-- **Communication:** Real-time Server-Sent Events (SSE) streaming architecture bridging Next.js API route handlers to child-process MCP servers.
-
----
-
-## 🛠️ Core Features
-
-- **Dynamic Tool Discovery:** Automatically inspects and registers MCP backend tools (`manage_task_operations`, `qualify_crm_lead`, `audit_knowledge_base`) upon connection.
-- **Real-Time Protocol Streaming:** Live visual execution trace logs via SSE, detailing agent reasoning loops, tool call dispatching, and response generation.
-- **Secure Configuration:** Environment-isolated OpenRouter AI integration with robust error-handling guardrails and fallback validation.
+### Protocol & Lifecycle Flow
+1. **Frontend Request:** The Next.js dashboard (`deskpilot-ui`) dispatches a prompt payload to `/api/chat`.
+2. **MCP Client & Child Process:** The API route initializes an `@modelcontextprotocol/sdk` client and spawns `deskpilot/server.ts` via standard input/output (`StdioClientTransport`) using the backend directory `cwd`.
+3. **Tool Discovery:** The MCP client queries the backend for registered tools (`/products`, `/users`, `/todos`) and transforms schemas into OpenAI function declarations.
+4. **Agentic Loop:** OpenRouter processes user inputs, calls appropriate tools via MCP JSON-RPC, receives execution results, and formulates final responses.
+5. **Streaming Response:** Server-Sent Events (SSE) stream status updates, tool initiation/completion events, and the final LLM output back to the React UI in real time.
 
 ---
 
-## ⚙️ Getting Started & Installation
+## 🛠️ Tech Stack
 
-### 1. Clone the Repository
+- **Frameworks:** Next.js (App Router), Node.js, React, TypeScript
+- **Protocols:** Model Context Protocol (MCP), JSON-RPC over `stdio`, Server-Sent Events (SSE)
+- **AI Infrastructure:** `@modelcontextprotocol/sdk`, OpenRouter API, OpenAI SDK
+- **Styling & UI:** Tailwind CSS, Lucide Icons
+
+---
+
+## 🚀 Quick Start
+
+### 1. Clone & Install Dependencies
+
 ```bash
-git clone https://github.com/YOUR_USERNAME/deskpilot-suite.git
+git clone <repository-url>
 cd deskpilot-suite
-```
-
-### 2. Configure Environment Variables
-Create a `.env.local` file inside the **`deskpilot-ui/`** directory:
-```env
-OPENROUTER_API_KEY=sk-or-v1-your-actual-api-key-here
-```
-
-### 3. Install Dependencies
-Install dependencies for both the frontend dashboard and backend agent server:
-
-```bash
-# Install UI dependencies
-cd deskpilot-ui
-npm install
 
 # Install backend dependencies
-cd ../deskpilot
-npm install
+cd deskpilot && npm install
+
+# Install frontend dependencies
+cd ../deskpilot-ui && npm install
 ```
 
----
+### 2. Environment Configuration
 
-## 🚀 Running Locally
+Create a `.env.local` file inside `deskpilot-ui/`:
 
-1. Navigate to your `deskpilot-ui` directory:
-   ```bash
-   cd deskpilot-ui
-   ```
-2. Start the Next.js development server:
-   ```bash
-   npm run dev
-   ```
-3. Open your browser and navigate to **[http://localhost:3000](http://localhost:3000)** to launch the DeskPilot operations dashboard.
+```env
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+```
 
----
+### 3. Running the Application
 
-## 🔌 How It Works
+Start the Next.js development server:
 
-1. **Frontend Request:** When you submit a prompt in the Next.js dashboard, a `POST /api/chat` request triggers an App Router SSE endpoint.
-2. **Child Process Spawn:** The API route dynamically spawns the backend MCP server (`../deskpilot/server.ts`) via Stdio transport using `npx tsx`.
-3. **Tool Handshake:** The client connects to the server, fetches available tools, and feeds them into the OpenRouter model completion loop.
-4. **Live Execution Stream:** As the model requests tool calls, the API route executes them on the MCP server and streams execution status, arguments, and results back to the UI in real-time.
+```bash
+cd deskpilot-ui
+npm run dev
+```
 
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
+Open [http://localhost:3000](http://localhost:3000) in your browser to interact with DeskPilot.
