@@ -12,6 +12,34 @@ dotenv.config({ path: ".env.local" });
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Helper function to race tool execution against a 15-second timeout guard
+async function callToolWithTimeout(
+  mcpClient: Client,
+  name: string,
+  args: any,
+  timeoutMs = 15000
+) {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Tool '${name}' execution timed out after ${timeoutMs / 1000}s.`)),
+      timeoutMs
+    );
+  });
+
+  try {
+    const result = (await Promise.race([
+      mcpClient.callTool({ name, arguments: args }),
+      timeoutPromise,
+    ])) as any;
+    clearTimeout(timer!);
+    return result;
+  } catch (err) {
+    clearTimeout(timer!);
+    throw err;
+  }
+}
+
 export async function POST(req: NextRequest) {
   // Step 2 Guard: Early environment validation before starting SSE stream
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -171,11 +199,27 @@ export async function POST(req: NextRequest) {
 
                 sendEvent("tool_call_start", { name: fnName, args: fnArgs });
 
-                console.log(`[MCP Call] Invoking '${fnName}' on MCP Server...`, fnArgs);
-                const toolExecutionResult = await mcpClient.callTool({
-                  name: fnName,
-                  arguments: fnArgs,
-                });
+                console.log(`[MCP Call] Invoking '${fnName}' on MCP Server with 15s timeout guard...`, fnArgs);
+                
+                let toolExecutionResult;
+                try {
+                  toolExecutionResult = await callToolWithTimeout(mcpClient, fnName, fnArgs, 15000);
+                  sendEvent("tool_call_complete", {
+                    name: fnName,
+                    resultSnippet: "Tool executed successfully within timeout window.",
+                  });
+                } catch (timeoutErr: any) {
+                  console.error(`[MCP Timeout Error] ${timeoutErr.message}`);
+                  sendEvent("error", timeoutErr.message);
+                  toolExecutionResult = {
+                    content: [
+                      {
+                        type: "text",
+                        text: JSON.stringify({ status: "error", message: timeoutErr.message }),
+                      },
+                    ],
+                  };
+                }
 
                 const contentBlocks = (toolExecutionResult.content ?? []) as Array<{
                   type: string;
@@ -184,11 +228,6 @@ export async function POST(req: NextRequest) {
                 const resultText = contentBlocks
                   .map((item) => (item.type === "text" ? item.text ?? "" : ""))
                   .join("\n");
-
-                sendEvent("tool_call_complete", {
-                  name: fnName,
-                  resultSnippet: resultText.slice(0, 200) + "...",
-                });
 
                 messages.push({
                   role: "tool",
