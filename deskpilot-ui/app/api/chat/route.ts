@@ -5,14 +5,39 @@ import OpenAI from "openai";
 import path from "path";
 import dotenv from "dotenv";
 
-// Load environment variables explicitly
 dotenv.config();
 dotenv.config({ path: ".env.local" });
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Helper function to race tool execution against a 15-second timeout guard
+// In-memory idempotency cache (stores cached results for 5 minutes)
+const idempotencyCache = new Map<string, { result: string; tokens: any; timestamp: number }>();
+
+// Exponential backoff retry helper for LLM API calls
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  delay = 1000,
+  onRetry?: (attempt: number, error: any) => void
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    const status = error?.status || error?.statusCode;
+    const isRetryable =
+      status === 429 || (status >= 500 && status < 600) || error?.code === "ETIMEDOUT";
+
+    if (retries > 0 && isRetryable) {
+      if (onRetry) onRetry(4 - retries, error);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return retryWithBackoff(fn, retries - 1, delay * 2, onRetry);
+    }
+    throw error;
+  }
+}
+
+// 15-second tool execution timeout guard
 async function callToolWithTimeout(
   mcpClient: Client,
   name: string,
@@ -44,11 +69,45 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     return new Response(
-      JSON.stringify({ 
-        error: "Configuration Error: OPENROUTER_API_KEY is missing in deskpilot-ui/.env.local" 
-      }), 
+      JSON.stringify({
+        error: "Configuration Error: OPENROUTER_API_KEY is missing in deskpilot-ui/.env.local",
+      }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
+  }
+
+  // Idempotency check
+  const idempotencyKey = req.headers.get("x-idempotency-key");
+  if (idempotencyKey && idempotencyCache.has(idempotencyKey)) {
+    const cached = idempotencyCache.get(idempotencyKey)!;
+    if (Date.now() - cached.timestamp < 300000) {
+      // Stream back cached response immediately
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "status", data: "[Cache] Serving idempotency-cached execution." })}\n\n`
+            )
+          );
+          if (cached.tokens) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "usage", data: cached.tokens })}\n\n`)
+            );
+          }
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: "final_answer", data: cached.result })}\n\n`)
+          );
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    } else {
+      idempotencyCache.delete(idempotencyKey);
+    }
   }
 
   let prompt: string;
@@ -90,9 +149,9 @@ export async function POST(req: NextRequest) {
       let mcpClient: Client | null = null;
       let totalPromptTokens = 0;
       let totalCompletionTokens = 0;
+      let finalAnswerText = "";
 
       const abortHandler = async () => {
-        console.warn("[API Route] Client disconnected. Cleaning up MCP client...");
         if (mcpClient) {
           try {
             await mcpClient.close();
@@ -159,19 +218,26 @@ export async function POST(req: NextRequest) {
 
           let response;
           try {
-            response = await openai.chat.completions.create({
-              model: "openrouter/free",
-              messages,
-              tools,
-              tool_choice: "auto",
-            });
+            response = await retryWithBackoff(
+              () =>
+                openai.chat.completions.create({
+                  model: "openrouter/free",
+                  messages,
+                  tools,
+                  tool_choice: "auto",
+                }),
+              3,
+              1000,
+              (attempt, err) => {
+                sendEvent("status", `[Retry] Rate limit/API issue detected. Retrying API request (Attempt ${attempt}/3)...`);
+              }
+            );
           } catch (apiErr: any) {
-            console.error("[OpenRouter API Error]", apiErr);
-            sendEvent("error", `OpenRouter API Call failed: ${apiErr.message}`);
+            console.error("[OpenRouter API Error After Retries]", apiErr);
+            sendEvent("error", `OpenRouter API Call failed after retries: ${apiErr.message}`);
             break;
           }
 
-          // Accumulate and broadcast token usage
           if (response.usage) {
             totalPromptTokens += response.usage.prompt_tokens || 0;
             totalCompletionTokens += response.usage.completion_tokens || 0;
@@ -235,8 +301,22 @@ export async function POST(req: NextRequest) {
             }
           } else {
             isLoopActive = false;
-            sendEvent("final_answer", assistantMessage.content ?? "No text response content.");
+            finalAnswerText = assistantMessage.content ?? "No text response content.";
+            sendEvent("final_answer", finalAnswerText);
           }
+        }
+
+        // Save execution to idempotency cache if key present
+        if (idempotencyKey && finalAnswerText) {
+          idempotencyCache.set(idempotencyKey, {
+            result: finalAnswerText,
+            tokens: {
+              promptTokens: totalPromptTokens,
+              completionTokens: totalCompletionTokens,
+              totalTokens: totalPromptTokens + totalCompletionTokens,
+            },
+            timestamp: Date.now(),
+          });
         }
       } catch (fatalErr: any) {
         console.error("[Fatal Stream Error]", fatalErr);

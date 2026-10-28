@@ -85,72 +85,78 @@ export default function Dashboard() {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim()) return;
+  e.preventDefault();
+  if (!prompt.trim()) return;
 
-    setLoading(true);
-    setLogs([]);
-    setResult("");
-    setTokens({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
-    setRequestCount((prev) => prev + 1);
+  setLoading(true);
+  setLogs([]);
+  setResult("");
+  setTokens({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
+  setRequestCount((prev) => prev + 1);
 
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
+  // Generate unique idempotency key per execution submission
+  const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `req_${Date.now()}`;
 
-      if (!res.body) {
-        setLoading(false);
-        return;
-      }
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify({ prompt }),
+    });
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
+    if (!res.body) {
+      setLoading(false);
+      return;
+    }
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n\n");
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
 
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const dataStr = line.replace("data: ", "");
-            if (dataStr === "[DONE]") {
-              setLoading(false);
-              break;
-            }
-            try {
-              const parsed = JSON.parse(dataStr);
-              if (parsed.type === "status") {
-                setLogs((prev) => [...prev, `[System] ${parsed.data}`]);
-              } else if (parsed.type === "tools_discovered") {
-                setLogs((prev) => [...prev, `[MCP] Discovered tools: ${parsed.data.join(", ")}`]);
-              } else if (parsed.type === "tool_call_start") {
-                setLogs((prev) => [...prev, `[Protocol] Executing tool '${parsed.data.name}' with args: ${JSON.stringify(parsed.data.args)}`]);
-              } else if (parsed.type === "tool_call_complete") {
-                setLogs((prev) => [...prev, `[Success] Tool '${parsed.data.name}' executed.`]);
-              } else if (parsed.type === "usage") {
-                setTokens(parsed.data);
-              } else if (parsed.type === "final_answer") {
-                setResult(parsed.data);
-              } else if (parsed.type === "error") {
-                setLogs((prev) => [...prev, `[Error] ${parsed.data}`]);
-              }
-            } catch (err) {}
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n\n");
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const dataStr = line.replace("data: ", "");
+          if (dataStr === "[DONE]") {
+            setLoading(false);
+            break;
           }
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed.type === "status") {
+              setLogs((prev) => [...prev, parsed.data]);
+            } else if (parsed.type === "tools_discovered") {
+              setLogs((prev) => [...prev, `[MCP] Discovered tools: ${parsed.data.join(", ")}`]);
+            } else if (parsed.type === "tool_call_start") {
+              setLogs((prev) => [...prev, `[Protocol] Executing tool '${parsed.data.name}' with args: ${JSON.stringify(parsed.data.args)}`]);
+            } else if (parsed.type === "tool_call_complete") {
+              setLogs((prev) => [...prev, `[Success] Tool '${parsed.data.name}' executed.`]);
+            } else if (parsed.type === "usage") {
+              setTokens(parsed.data);
+            } else if (parsed.type === "final_answer") {
+              setResult(parsed.data);
+            } else if (parsed.type === "error") {
+              setLogs((prev) => [...prev, `[Error] ${parsed.data}`]);
+            }
+          } catch (err) {}
         }
       }
-    } catch (err: any) {
-      setLogs((prev) => [...prev, `[Fatal] ${err.message || "Failed to reach backend route."}`]);
-    } finally {
-      setLoading(false);
-      fetchKeyStatus(); // Refresh key stats after run finishes
     }
-  };
+  } catch (err: any) {
+    setLogs((prev) => [...prev, `[Fatal] ${err.message || "Failed to reach backend route."}`]);
+  } finally {
+    setLoading(false);
+    fetchKeyStatus();
+  }
+};
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-8 font-sans">
