@@ -41,7 +41,6 @@ async function callToolWithTimeout(
 }
 
 export async function POST(req: NextRequest) {
-  // Step 2 Guard: Early environment validation before starting SSE stream
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     return new Response(
@@ -52,7 +51,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Parse and validate request body
   let prompt: string;
   try {
     const body = await req.json();
@@ -90,8 +88,9 @@ export async function POST(req: NextRequest) {
       };
 
       let mcpClient: Client | null = null;
+      let totalPromptTokens = 0;
+      let totalCompletionTokens = 0;
 
-      // Handle client disconnect / abort signals gracefully
       const abortHandler = async () => {
         console.warn("[API Route] Client disconnected. Cleaning up MCP client...");
         if (mcpClient) {
@@ -108,9 +107,6 @@ export async function POST(req: NextRequest) {
         const serverPath = path.resolve(process.cwd(), "../deskpilot/server.ts");
         const deskpilotDir = path.resolve(process.cwd(), "../deskpilot");
 
-        console.log("[MCP Spawn] Server script path:", serverPath);
-        console.log("[MCP Spawn] Working directory:", deskpilotDir);
-
         const transport = new StdioClientTransport({
           command: "npx",
           args: ["tsx", serverPath],
@@ -125,7 +121,6 @@ export async function POST(req: NextRequest) {
         await mcpClient.connect(transport);
         sendEvent("status", "Connected to MCP Server successfully.");
 
-        // Discover tools
         const mcpToolsResult = await mcpClient.listTools();
         const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = mcpToolsResult.tools.map(
           (tool) =>
@@ -162,8 +157,6 @@ export async function POST(req: NextRequest) {
         while (isLoopActive && maxTurns > 0) {
           maxTurns--;
 
-          console.log(`[Agent Loop] Requesting completion from OpenRouter (Turns remaining: ${maxTurns})...`);
-
           let response;
           try {
             response = await openai.chat.completions.create({
@@ -178,11 +171,20 @@ export async function POST(req: NextRequest) {
             break;
           }
 
-          console.log("[Agent Loop] Received model response.");
+          // Accumulate and broadcast token usage
+          if (response.usage) {
+            totalPromptTokens += response.usage.prompt_tokens || 0;
+            totalCompletionTokens += response.usage.completion_tokens || 0;
+
+            sendEvent("usage", {
+              promptTokens: totalPromptTokens,
+              completionTokens: totalCompletionTokens,
+              totalTokens: totalPromptTokens + totalCompletionTokens,
+            });
+          }
 
           const assistantMessage = response.choices[0]?.message;
           if (!assistantMessage) {
-            console.error("[Agent Error] Empty choice payload returned.");
             sendEvent("error", "No response message received from OpenRouter.");
             break;
           }
@@ -190,8 +192,6 @@ export async function POST(req: NextRequest) {
           messages.push(assistantMessage);
 
           if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
-            console.log(`[Agent Loop] Processing ${assistantMessage.tool_calls.length} tool call(s)...`);
-
             for (const toolCall of assistantMessage.tool_calls) {
               if (toolCall.type === "function") {
                 const fnName = toolCall.function.name;
@@ -199,8 +199,6 @@ export async function POST(req: NextRequest) {
 
                 sendEvent("tool_call_start", { name: fnName, args: fnArgs });
 
-                console.log(`[MCP Call] Invoking '${fnName}' on MCP Server with 15s timeout guard...`, fnArgs);
-                
                 let toolExecutionResult;
                 try {
                   toolExecutionResult = await callToolWithTimeout(mcpClient, fnName, fnArgs, 15000);
@@ -209,7 +207,6 @@ export async function POST(req: NextRequest) {
                     resultSnippet: "Tool executed successfully within timeout window.",
                   });
                 } catch (timeoutErr: any) {
-                  console.error(`[MCP Timeout Error] ${timeoutErr.message}`);
                   sendEvent("error", timeoutErr.message);
                   toolExecutionResult = {
                     content: [
@@ -238,7 +235,6 @@ export async function POST(req: NextRequest) {
             }
           } else {
             isLoopActive = false;
-            console.log("[Agent Loop] Received final answer from assistant.");
             sendEvent("final_answer", assistantMessage.content ?? "No text response content.");
           }
         }
@@ -250,9 +246,7 @@ export async function POST(req: NextRequest) {
         if (mcpClient) {
           try {
             await mcpClient.close();
-          } catch (closeErr) {
-            console.error("Error closing MCP client:", closeErr);
-          }
+          } catch {}
         }
         sendEvent("status", "Stream finished.");
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));

@@ -1,54 +1,87 @@
 "use client";
 import React, { useState, useEffect } from "react";
 
+interface KeyInfo {
+  label?: string;
+  usage?: number;
+  limit?: number | null;
+  is_free_tier?: boolean;
+}
+
 export default function Dashboard() {
   const [prompt, setPrompt] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
+  const [tokens, setTokens] = useState({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
+  const [keyInfo, setKeyInfo] = useState<KeyInfo | null>(null);
+  const [requestCount, setRequestCount] = useState(0);
 
-  // 1. Restore state from localStorage on initial load
+  // 1. Fetch OpenRouter Key Status on mount
+  const fetchKeyStatus = async () => {
+    try {
+      const res = await fetch("/api/key-status");
+      if (res.ok) {
+        const payload = await res.json();
+        if (payload.data) {
+          setKeyInfo(payload.data);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch key status:", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchKeyStatus();
+  }, []);
+
+  // 2. Restore state from localStorage on initial load
   useEffect(() => {
     const savedPrompt = localStorage.getItem("deskpilot_prompt");
     const savedLogs = localStorage.getItem("deskpilot_logs");
     const savedResult = localStorage.getItem("deskpilot_result");
+    const savedTokens = localStorage.getItem("deskpilot_tokens");
+    const savedReqCount = localStorage.getItem("deskpilot_req_count");
 
     if (savedPrompt) setPrompt(savedPrompt);
     if (savedLogs) {
-      try {
-        setLogs(JSON.parse(savedLogs));
-      } catch (e) {
-        console.error("Failed to parse saved logs:", e);
-      }
+      try { setLogs(JSON.parse(savedLogs)); } catch (e) {}
     }
     if (savedResult) setResult(savedResult);
+    if (savedTokens) {
+      try { setTokens(JSON.parse(savedTokens)); } catch (e) {}
+    }
+    if (savedReqCount) {
+      setRequestCount(parseInt(savedReqCount, 10) || 0);
+    }
   }, []);
 
-  // 2. Persist state to localStorage whenever logs or result change
+  // 3. Persist state to localStorage
   useEffect(() => {
-    if (logs.length > 0) {
-      localStorage.setItem("deskpilot_logs", JSON.stringify(logs));
-    }
-    if (result) {
-      localStorage.setItem("deskpilot_result", result);
-    }
-  }, [logs, result]);
+    if (logs.length > 0) localStorage.setItem("deskpilot_logs", JSON.stringify(logs));
+    if (result) localStorage.setItem("deskpilot_result", result);
+    if (tokens.totalTokens > 0) localStorage.setItem("deskpilot_tokens", JSON.stringify(tokens));
+    if (requestCount > 0) localStorage.setItem("deskpilot_req_count", requestCount.toString());
+  }, [logs, result, tokens, requestCount]);
 
-  // Persist prompt input as user types
   const handlePromptChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setPrompt(value);
     localStorage.setItem("deskpilot_prompt", value);
   };
 
-  // Clear workspace and storage
   const handleClearSession = () => {
     localStorage.removeItem("deskpilot_prompt");
     localStorage.removeItem("deskpilot_logs");
     localStorage.removeItem("deskpilot_result");
+    localStorage.removeItem("deskpilot_tokens");
+    localStorage.removeItem("deskpilot_req_count");
     setPrompt("");
     setLogs([]);
     setResult("");
+    setTokens({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
+    setRequestCount(0);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,6 +91,8 @@ export default function Dashboard() {
     setLoading(true);
     setLogs([]);
     setResult("");
+    setTokens({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
+    setRequestCount((prev) => prev + 1);
 
     try {
       const res = await fetch("/api/chat", {
@@ -98,14 +133,14 @@ export default function Dashboard() {
                 setLogs((prev) => [...prev, `[Protocol] Executing tool '${parsed.data.name}' with args: ${JSON.stringify(parsed.data.args)}`]);
               } else if (parsed.type === "tool_call_complete") {
                 setLogs((prev) => [...prev, `[Success] Tool '${parsed.data.name}' executed.`]);
+              } else if (parsed.type === "usage") {
+                setTokens(parsed.data);
               } else if (parsed.type === "final_answer") {
                 setResult(parsed.data);
               } else if (parsed.type === "error") {
                 setLogs((prev) => [...prev, `[Error] ${parsed.data}`]);
               }
-            } catch (err) {
-              // ignore JSON parse errors on partial frames
-            }
+            } catch (err) {}
           }
         }
       }
@@ -113,18 +148,34 @@ export default function Dashboard() {
       setLogs((prev) => [...prev, `[Fatal] ${err.message || "Failed to reach backend route."}`]);
     } finally {
       setLoading(false);
+      fetchKeyStatus(); // Refresh key stats after run finishes
     }
   };
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-8 font-sans">
       <div className="max-w-6xl mx-auto space-y-8">
-        <header className="border-b border-slate-800 pb-4 flex justify-between items-center">
+        <header className="border-b border-slate-800 pb-4 flex justify-between items-center flex-wrap gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-indigo-400">DeskPilot Operations Hub</h1>
             <p className="text-sm text-slate-400">Decoupled Model Context Protocol (MCP) Enterprise Agent</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            {keyInfo && (
+              <span className="px-3 py-1.5 text-xs bg-emerald-950/60 text-emerald-400 rounded-md border border-emerald-800 font-mono">
+                {keyInfo.is_free_tier ? "OpenRouter Free Tier" : "OpenRouter API Key Active"}
+              </span>
+            )}
+            {requestCount > 0 && (
+              <span className="px-3 py-1.5 text-xs bg-slate-900 text-slate-300 rounded-md border border-slate-800 font-mono">
+                Runs: {requestCount}
+              </span>
+            )}
+            {tokens.totalTokens > 0 && (
+              <span className="px-3 py-1.5 text-xs bg-slate-900 text-slate-300 rounded-md border border-slate-800 font-mono">
+                Tokens: {tokens.promptTokens} in / {tokens.completionTokens} out ({tokens.totalTokens} total)
+              </span>
+            )}
             <button
               onClick={handleClearSession}
               type="button"
@@ -156,7 +207,6 @@ export default function Dashboard() {
         </form>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Live Execution Logs */}
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 flex flex-col h-[400px]">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-3">Live Protocol Logs</h2>
             <div className="flex-1 overflow-y-auto font-mono text-xs space-y-2 bg-slate-950 p-4 rounded-lg border border-slate-900">
@@ -172,7 +222,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Executive Summary Output */}
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 flex flex-col h-[400px]">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-3">Executive Summary</h2>
             <div className="flex-1 overflow-y-auto text-sm text-slate-200 bg-slate-950 p-4 rounded-lg border border-slate-900 whitespace-pre-wrap">
