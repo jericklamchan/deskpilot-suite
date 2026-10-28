@@ -13,8 +13,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  // Step 2 Guard: Early environment validation before starting SSE stream
   const apiKey = process.env.OPENROUTER_API_KEY;
-
   if (!apiKey) {
     return new Response(
       JSON.stringify({ 
@@ -24,12 +24,29 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Parse and validate request body
+  let prompt: string;
+  try {
+    const body = await req.json();
+    prompt = body.prompt;
+    if (!prompt || typeof prompt !== "string") {
+      return new Response(
+        JSON.stringify({ error: "Property 'prompt' is required and must be a string." }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: "Invalid JSON request body." }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   const openai = new OpenAI({
     baseURL: "https://openrouter.ai/api/v1",
     apiKey: apiKey,
   });
 
-  const { prompt } = await req.json();
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -69,7 +86,7 @@ export async function POST(req: NextRequest) {
         const transport = new StdioClientTransport({
           command: "npx",
           args: ["tsx", serverPath],
-          cwd: deskpilotDir, // <--- THIS IS THE FIX: Runs it inside the deskpilot package folder
+          cwd: deskpilotDir,
         });
 
         mcpClient = new Client(
