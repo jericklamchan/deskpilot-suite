@@ -1,44 +1,87 @@
-# DeskPilot UI (Dashboard & Streaming Client) 💻
+# DeskPilot UI
 
-`deskpilot-ui` is a modern Next.js App Router web application that acts as the control panel for the DeskPilot AI Assistant. It bridges user requests to the backend MCP server using dynamic process spawning and real-time Server-Sent Events (SSE).
-
-## ✨ Features
-
-- **Live Protocol Streaming:** Displays real-time SSE execution logs, showing active tool discovery, agent reasoning turns, and payload execution steps.
-- **Dynamic MCP Client Integration:** Server-side API routes seamlessly initialize `@modelcontextprotocol/sdk` clients and manage the child process lifecycle of the `deskpilot` backend.
-- **Agentic Chat Interface:** Interactive prompt console for issuing complex management, inventory, and task backlog queries.
+The web dashboard and frontend interface for **DeskPilot**, built with **Next.js (App Router)**, **Tailwind CSS**, and **TypeScript**. It provides a real-time operational dashboard for interacting with the decoupled DeskPilot MCP backend agent.
 
 ---
 
-## 🛠️ Project Structure
+## 📂 Architecture & Directory Structure
 
 ```text
 deskpilot-ui/
 ├── app/
 │   ├── api/
-│   │   └── chat/
-│   │       └── route.ts  # Node.js API route (MCP Client & Child Process Manager)
-│   ├── layout.tsx        # Root UI Layout
-│   └── page.tsx          # Dashboard page & SSE event stream reader
-├── .env.local            # Local environment keys (OPENROUTER_API_KEY)
-├── package.json          # Dependencies
-└── README.md             # Frontend module documentation
+│   │   ├── chat/route.ts       # SSE streaming route spawning MCP backend agent
+│   │   └── key-status/route.ts # OpenRouter key status & quota verification
+│   ├── components/             # Modular React UI components
+│   │   ├── Header.tsx          # Status badges, token counters, session actions
+│   │   ├── PromptForm.tsx      # Execution prompt form input
+│   │   ├── ProtocolLogs.tsx    # Live protocol stream log viewer
+│   │   └── ExecutiveSummary.tsx# Markdown / formatted final answer viewer
+│   ├── hooks/
+│   │   └── useDeskPilotSession.ts # Custom hook handling SSE stream, storage & state
+│   ├── types/
+│   │   └── index.ts            # Data models & interface declarations
+│   ├── layout.tsx              # Root layout & font configuration
+│   └── page.tsx                # Clean container page orchestrating components
+├── public/                     # Static assets
+└── package.json
 ```
+
+---
+
+## ⚡ Key Features
+
+- **Server-Sent Events (SSE) Streaming:** Streams real-time MCP discovery, tool execution logs, token usage, and final answers from the backend.
+- **Request Idempotency:** Injects a unique `X-Idempotency-Key` UUID header with every execution request to prevent duplicate processing.
+- **Session State Persistence:** Remembers prompt history, active logs, final summaries, token totals, and run counts via `localStorage`.
+- **OpenRouter Key Monitoring:** Verifies active API key status, tier limits, and token usage via `/api/key-status`.
+- **Modular Component Architecture:** Clean separation between custom hooks, state management, single-responsibility components, and strong TypeScript models.
 
 ---
 
 ## ⚙️ Configuration & Setup
 
-1. Create a `.env.local` file in the root of `deskpilot-ui/`:
+### 1. Environment File
 
-   ```env
-   OPENROUTER_API_KEY=your_openrouter_api_key_here
-   ```
+Create a `.env.local` file inside the `deskpilot-ui/` directory:
 
-2. Start the development server:
+```env
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+```
 
-   ```bash
-   npm run dev
-   ```
+### 2. Install Dependencies
 
-3. Navigate to [http://localhost:3000](http://localhost:3000) to launch the assistant dashboard.
+```bash
+cd deskpilot-ui
+npm install
+```
+
+---
+
+## 🚀 Running the Frontend
+
+### Development Mode
+
+Start the Next.js development server with hot-reloading:
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### Production Build
+
+To test or deploy a production build:
+
+```bash
+npm run build
+npm run start
+```
+
+---
+
+## 📡 API Integration Details
+
+- **`POST /api/chat`**: Spawns the backend MCP agent child process over `stdio`, parses SSE data chunks, and relays real-time protocol status events to the UI.
+- **`GET /api/key-status`**: Fetches key metadata and usage statistics from OpenRouter.

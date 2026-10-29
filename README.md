@@ -1,44 +1,74 @@
-# DeskPilot Suite 🚀
+# DeskPilot Enterprise Suite
 
-DeskPilot Suite is a full-stack, monorepo-based AI operations assistant platform. It leverages the **Model Context Protocol (MCP)** to allow an LLM agent to inspect, query, and act upon mock internal enterprise data (CRM, Inventory, Task Backlogs) in real time.
+DeskPilot Enterprise Suite is a production-ready, modular AI operations platform powered by the **Model Context Protocol (MCP)**. It combines a decoupled backend MCP server with a real-time Next.js frontend UI featuring Server-Sent Events (SSE) streaming, request idempotency tracking, and interactive tool execution.
 
-## 🏗️ Architecture Overview
+---
 
-The workspace is organized as a monorepo containing two core modules:
+## 📂 Monorepo Architecture
 
 ```text
 deskpilot-suite/
-├── deskpilot/       # MCP Backend Server (TypeScript + Stdio Transport)
-├── deskpilot-ui/    # Next.js Dashboard Frontend (React + SSE Stream)
-└── README.md        # Monorepo documentation
+├── deskpilot/                  # MCP Backend & Interactive CLI Agent
+│   ├── config.ts               # Environment & OpenRouter LLM client configuration
+│   ├── mcpClient.ts            # MCP Stdio transport & dynamic tool discovery
+│   ├── agentLoop.ts            # Multi-turn LLM reasoning & execution loop
+│   ├── agent.ts                # Terminal CLI entry point for testing
+│   ├── server.ts               # Standalone MCP Server backbone
+│   ├── utils/
+│   │   └── fetcher.ts          # Resilient HTTP fetcher with timeout guards
+│   └── tools/
+│       └── index.ts            # Registered operational tools (Tasks, CRM, KB)
+│
+└── deskpilot-ui/               # Next.js Frontend Operations Dashboard
+    ├── app/
+    │   ├── api/
+    │   │   ├── chat/route.ts   # SSE streaming API spawning MCP child process
+    │   │   └── key-status/     # OpenRouter API key quota verification
+    │   ├── components/         # Modular UI sub-components
+    │   │   ├── Header.tsx
+    │   │   ├── PromptForm.tsx
+    │   │   ├── ProtocolLogs.tsx
+    │   │   └── ExecutiveSummary.tsx
+    │   ├── hooks/
+    │   │   └── useDeskPilotSession.ts  # Custom state, SSE & storage hook
+    │   ├── types/
+    │   │   └── index.ts        # TypeScript data models
+    │   └── page.tsx            # Main container page
+    └── package.json
 ```
 
-### Protocol & Lifecycle Flow
-1. **Frontend Request:** The Next.js dashboard (`deskpilot-ui`) dispatches a prompt payload to `/api/chat`.
-2. **MCP Client & Child Process:** The API route initializes an `@modelcontextprotocol/sdk` client and spawns `deskpilot/server.ts` via standard input/output (`StdioClientTransport`) using the backend directory `cwd`.
-3. **Tool Discovery:** The MCP client queries the backend for registered tools (`/products`, `/users`, `/todos`) and transforms schemas into OpenAI function declarations.
-4. **Agentic Loop:** OpenRouter processes user inputs, calls appropriate tools via MCP JSON-RPC, receives execution results, and formulates final responses.
-5. **Streaming Response:** Server-Sent Events (SSE) stream status updates, tool initiation/completion events, and the final LLM output back to the React UI in real time.
+---
+
+## ⚙️ Prerequisites & Environment Setup
+
+### Prerequisites
+* **Node.js**: v18.0.0 or higher
+* **npm**: v9.0.0 or higher
+* **OpenRouter API Key**: Required for LLM reasoning capabilities
+
+### Environment Configuration
+
+Create environment configuration files in both packages:
+
+1. **Backend Configuration (`deskpilot/.env`):**
+   ```env
+   OPENROUTER_API_KEY=your_openrouter_api_key_here
+   ```
+
+2. **Frontend Configuration (`deskpilot-ui/.env.local`):**
+   ```env
+   OPENROUTER_API_KEY=your_openrouter_api_key_here
+   ```
 
 ---
 
-## 🛠️ Tech Stack
+## 🚀 Quick Start Guide
 
-- **Frameworks:** Next.js (App Router), Node.js, React, TypeScript
-- **Protocols:** Model Context Protocol (MCP), JSON-RPC over `stdio`, Server-Sent Events (SSE)
-- **AI Infrastructure:** `@modelcontextprotocol/sdk`, OpenRouter API, OpenAI SDK
-- **Styling & UI:** Tailwind CSS, Lucide Icons
+### 1. Install Dependencies
 
----
-
-## 🚀 Quick Start
-
-### 1. Clone & Install Dependencies
+Install packages in both monorepo workspaces:
 
 ```bash
-git clone <repository-url>
-cd deskpilot-suite
-
 # Install backend dependencies
 cd deskpilot && npm install
 
@@ -46,15 +76,29 @@ cd deskpilot && npm install
 cd ../deskpilot-ui && npm install
 ```
 
-### 2. Environment Configuration
+---
 
-Create a `.env.local` file inside `deskpilot-ui/`:
+## 🧪 Testing the Backend Standalone
 
-```env
-OPENROUTER_API_KEY=your_openrouter_api_key_here
+You can test the MCP backend independently without spawning the frontend interface.
+
+### Method A: Interactive Terminal CLI
+Run the interactive CLI agent runner over Stdio:
+```bash
+cd deskpilot
+npx tsx agent.ts
 ```
 
-### 3. Running the Application
+### Method B: Anthropic MCP Inspector
+Launch Anthropic's official MCP Inspector web UI to test schemas and payloads:
+```bash
+cd deskpilot
+npx @modelcontextprotocol/inspector npx tsx server.ts
+```
+
+---
+
+## 🌐 Running the Frontend UI
 
 Start the Next.js development server:
 
@@ -63,4 +107,14 @@ cd deskpilot-ui
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser to interact with DeskPilot.
+Open [http://localhost:3000](http://localhost:3000) in your browser to interact with the DeskPilot Operations Hub.
+
+---
+
+## 🔒 Key Features
+
+- **Decoupled MCP Architecture**: Standardized protocol connection via Stdio child processes.
+- **Real-Time Streaming**: Server-Sent Events (SSE) deliver live execution protocol logs and token metrics.
+- **Idempotency Tracking**: Every execution includes a unique `X-Idempotency-Key` header to prevent duplicate calls.
+- **Session Persistence**: Local state (`logs`, `summary`, `tokens`) automatically persists across reloads via `localStorage`.
+- **Clean Code & Modular Standards**: Built with modern ESM extension rules (`.js`), clean React custom hooks, and full TypeScript typing.
