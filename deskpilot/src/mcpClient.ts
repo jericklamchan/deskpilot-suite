@@ -1,18 +1,17 @@
+// deskpilot/src/mcpClient.ts
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import OpenAI from "openai";
-import path from "path";
+import { MCP_SERVER_PATH, CLIENT_INFO } from "./config.js";
 
 export async function createMcpClient() {
-  const serverPath = path.resolve(process.cwd(), "src/server.ts");
-
   const transport = new StdioClientTransport({
     command: "npx",
-    args: ["tsx", serverPath],
+    args: ["tsx", MCP_SERVER_PATH],
   });
 
   const mcpClient = new Client(
-    { name: "deskpilot-agent-client", version: "1.0.0" },
+    { name: CLIENT_INFO.name, version: CLIENT_INFO.version },
     { capabilities: {} }
   );
 

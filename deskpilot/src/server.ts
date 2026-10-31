@@ -1,11 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerTools } from "../tools/index.js";
+import { SERVER_INFO } from "./config.js";
 
 async function main() {
   const server = new McpServer({
-    name: "deskpilot-mcp-server",
-    version: "1.0.0",
+    name: SERVER_INFO.name,
+    version: SERVER_INFO.version,
   });
 
   // Register all modular tools
