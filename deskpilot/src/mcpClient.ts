@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import path from "path";
 
 export async function createMcpClient() {
-  const serverPath = path.resolve(process.cwd(), "server.ts");
+  const serverPath = path.resolve(process.cwd(), "src/server.ts");
 
   const transport = new StdioClientTransport({
     command: "npx",

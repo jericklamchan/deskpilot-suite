@@ -1,12 +1,21 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import OpenAI from "openai";
 import { openai } from "./config.js";
+import { SUPPORTED_MODELS, ModelId } from "./types/models.js";
 
 export async function runAgent(
   userPrompt: string,
   mcpClient: Client,
-  tools: OpenAI.Chat.Completions.ChatCompletionTool[]
+  tools: OpenAI.Chat.Completions.ChatCompletionTool[],
+  selectedModel: string = "anthropic/claude-3.5-sonnet" // Default fallback model
 ) {
+  // Validate model choice or fallback safely
+  const modelToUse: ModelId = SUPPORTED_MODELS.some((m) => m.id === selectedModel)
+    ? (selectedModel as ModelId)
+    : "anthropic/claude-3.5-sonnet";
+
+  console.log(`[Agent Loop] Executing agent using model: ${modelToUse}`);
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     {
       role: "system",
@@ -23,7 +32,7 @@ export async function runAgent(
     maxTurns--;
 
     const response = await openai.chat.completions.create({
-      model: "openrouter/free",
+      model: modelToUse, // Uses the dynamic model (e.g., Grok 2 or Claude)
       messages,
       tools,
       tool_choice: "auto",
